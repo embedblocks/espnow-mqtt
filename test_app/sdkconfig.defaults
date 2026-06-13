@@ -1,0 +1,23 @@
+# sdkconfig.defaults for test_app
+# Role: BOTH (publisher + broker) — maximises symbol coverage in tests.
+# All publisher and broker code compiled in.
+
+CONFIG_ESPNOW_MQTT_ROLE_BOTH=y
+
+# Publisher: CONTINUOUS mode (SLEEP mode tested via separate sdkconfig)
+CONFIG_ESPNOW_MQTT_PUBLISHER_MODE_CONTINUOUS=y
+
+# Conservative sizes for test target (ESP32 or ESP32-C3 dev board)
+CONFIG_ESPNOW_MQTT_MAX_PUBLISHER_TOPICS=4
+CONFIG_ESPNOW_MQTT_MAX_TOPICS=32
+CONFIG_ESPNOW_MQTT_MAX_SUBSCRIPTIONS=8
+CONFIG_ESPNOW_MQTT_DISPATCH_QUEUE_SIZE=8
+CONFIG_ESPNOW_MQTT_MAX_TRACKED_PEERS=16
+
+# Fast scan for tests
+CONFIG_ESPNOW_MQTT_CHANNEL_PROBE_MS=20
+CONFIG_ESPNOW_MQTT_BOOT_JITTER_MS=0
+
+# Log level: INFO in test builds (DEBUG would flood the Unity output)
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3

@@ -1,0 +1,26 @@
+## ESP-NOW MQTT component manifest
+
+version: "0.1.0"
+description: >
+  Lightweight MQTT-like publish/subscribe over ESP-NOW. Stateless publishers,
+  central WiFi-connected broker, no fragmentation, 250-byte frame discipline.
+  Requires ESP-IDF >= 5.5.0.
+
+url: "https://github.com/YOUR_ORG/espnow_mqtt"
+repository: "https://github.com/YOUR_ORG/espnow_mqtt.git"
+
+license: "MIT"
+
+targets:
+  - esp32
+  - esp32s3
+  - esp32c3
+  - esp32c6
+  - esp32s2     # Publisher role only — broker role not tested on S2 (RAM headroom)
+
+dependencies:
+  idf: ">=5.5.0"
+
+examples:
+  - path: examples/publisher/basic_sensor
+  - path: examples/broker/basic_broker

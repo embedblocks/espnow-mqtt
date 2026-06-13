@@ -1,0 +1,358 @@
+menu "ESP-NOW MQTT"
+
+    # =========================================================================
+    # Role selection
+    # =========================================================================
+
+    choice ESPNOW_MQTT_ROLE
+        prompt "Component role"
+        default ESPNOW_MQTT_ROLE_BOTH
+        help
+            Controls which role code is compiled into the firmware. The build
+            system excludes the irrelevant .c file entirely — not just guards it.
+
+            BOTH:      Publisher + broker in the same firmware (default).
+                       All symbols present. Use for development.
+            PUBLISHER: Broker symbols stripped. Saves ~15 KB flash on ESP32-C3.
+                       Use for sensor/publisher nodes.
+            BROKER:    Publisher symbols stripped. Saves ~10 KB flash on ESP32-C3.
+                       Use for the central hub node.
+
+        config ESPNOW_MQTT_ROLE_BOTH
+            bool "Both (publisher + broker in same firmware)"
+        config ESPNOW_MQTT_ROLE_PUBLISHER
+            bool "Publisher only (strips broker code)"
+        config ESPNOW_MQTT_ROLE_BROKER
+            bool "Broker only (strips publisher code)"
+    endchoice
+
+    # Numeric alias — required for Kconfig 'depends on ESPNOW_MQTT_ROLE != N'
+    # syntax used in the Publisher and Broker option menus below, and for C
+    # guards '#if CONFIG_ESPNOW_MQTT_ROLE != 1' in espnow_mqtt_internal.h.
+    # Do NOT use this symbol in CMakeLists.txt — use the bool forms there.
+    config ESPNOW_MQTT_ROLE
+        int
+        default 0 if ESPNOW_MQTT_ROLE_BOTH
+        default 1 if ESPNOW_MQTT_ROLE_PUBLISHER
+        default 2 if ESPNOW_MQTT_ROLE_BROKER
+
+    # =========================================================================
+    # Publisher options
+    # =========================================================================
+
+    menu "Publisher options"
+        depends on ESPNOW_MQTT_ROLE != 2
+
+        choice ESPNOW_MQTT_PUBLISHER_MODE
+            prompt "Publisher operating mode"
+            default ESPNOW_MQTT_PUBLISHER_MODE_CONTINUOUS
+            help
+                CONTINUOUS: publisher_task runs indefinitely. Handles ID_UNKNOWN,
+                BROKER_ANNOUNCE, keepalive timer, and no-reply timeout asynchronously.
+
+                SLEEP: no publisher_task. Linear wake-publish-sleep API via
+                espnow_mqtt_register_sync() / espnow_mqtt_publish_sync(). Strips
+                publisher_task, timers, and registered event group from the build.
+
+            config ESPNOW_MQTT_PUBLISHER_MODE_CONTINUOUS
+                bool "Continuous (always-on)"
+            config ESPNOW_MQTT_PUBLISHER_MODE_SLEEP
+                bool "Wake-publish-sleep (deep sleep between publishes)"
+        endchoice
+
+        config ESPNOW_MQTT_MAX_PUBLISHER_TOPICS
+            int "Maximum topics a single publisher can register"
+            range 1 8
+            default 1
+            help
+                Each slot uses ~252 bytes of static RAM.
+                Default 1 for single-topic nodes.
+                Set to 2 for temperature+humidity, 4 for multi-channel loggers.
+                The broker enforces the same limit per-MAC.
+
+                Scan-cycle time constraint:
+                  CHANNEL_PROBE_MS x MAX_CHANNEL x MAX_PUBLISHER_TOPICS <= 3000ms
+                A build-time warning fires when this product exceeds 3000ms.
+
+        config ESPNOW_MQTT_PUBLISHER_EVENT_QUEUE_SIZE
+            int "Publisher event queue depth"
+            range 2 16
+            default 4
+            help
+                Depth of the publisher_task event queue. If full when publish()
+                is called, publish() returns ESP_ERR_NO_MEM immediately.
+                Each slot is ~268 bytes. Default 4: ~1.0 KB static RAM.
+                Allocated statically (xQueueCreateStatic).
+
+        config ESPNOW_MQTT_CHANNEL_PROBE_MS
+            int "Per-channel probe wait time (ms)"
+            range 10 200
+            default 20
+            help
+                Time to wait on each channel for a REGISTER_ACK.
+                Increase to 50-100ms in noisy RF environments.
+                Keep the scan-cycle product below 3000ms:
+                  CHANNEL_PROBE_MS x MAX_CHANNEL x MAX_PUBLISHER_TOPICS <= 3000ms
+
+        config ESPNOW_MQTT_REGISTER_TIMEOUT_MS
+            int "Per-slot cumulative scan budget for single-slot re-registration (ms)"
+            range 100 30000
+            default 500
+            help
+                Maximum cumulative scan time for ONE topic slot in
+                publisher_scan_single_slot() (PARTIALLY_REGISTERED recovery).
+                Does NOT apply to publisher_scan_all_slots().
+                Default 500ms covers 13 channels x 20ms = 260ms with margin.
+
+        config ESPNOW_MQTT_REGISTER_MAX_RETRIES
+            int "Failed scan cycles before switching from exponential to slow retry"
+            range 1 20
+            default 5
+            help
+                After this many failed full channel-scan cycles, the publisher
+                switches from exponential backoff (500, 1000, 2000, 4000, 8000ms)
+                to fixed slow-interval retries (REGISTER_SLOW_INTERVAL_MS).
+
+        config ESPNOW_MQTT_REGISTER_SLOW_INTERVAL_MS
+            int "Slow fixed-interval retry period after REGISTER_MAX_RETRIES exceeded (ms)"
+            range 1000 3600000
+            default 30000
+            help
+                After REGISTER_MAX_RETRIES fast cycles, retry at this fixed
+                interval indefinitely (or until MAX_REDISCOVER_ATTEMPTS is reached).
+                Do not set above NO_REPLY_TIMEOUT_MS.
+
+        config ESPNOW_MQTT_MAX_REDISCOVER_ATTEMPTS
+            int "Max consecutive failed rediscover cycles before UNPROVISIONED (0=infinite)"
+            range 0 255
+            default 0
+            help
+                0 (default): retry forever.
+                Non-zero: after N failed full scan cycles, publisher transitions
+                to ESPNOW_MQTT_STATE_UNPROVISIONED. Call espnow_mqtt_rediscover()
+                to reset. Set to 20-50 in deployments where publishers may be
+                administratively removed while still powered on.
+
+        config ESPNOW_MQTT_MAX_CONSECUTIVE_REJECTIONS
+            int "Consecutive REGISTER_ACK{topic_id=0} before permanent slot lock"
+            range 1 50
+            default 10
+            help
+                After this many consecutive rejections for a single topic slot,
+                perm_rejected is set to true and publish() returns INVALID_STATE
+                for that handle. Recovery: espnow_mqtt_clear_perm_rejected().
+
+                Default 10 gives headroom against transient burst rejections
+                (e.g. 20+ publishers registering simultaneously after a broker reboot)
+                while still catching genuine firmware bugs quickly.
+
+        config ESPNOW_MQTT_INTERNAL_ERR_THRESHOLD
+            int "Consecutive SEND_FAIL callbacks before triggering channel rediscover"
+            range 1 50
+            default 5
+            help
+                Number of consecutive ESP_NOW_SEND_FAIL results in the L1 ACK
+                callback before triggering channel rediscovery. Suppressed during
+                channel scans (s_scan_active == true).
+
+        config ESPNOW_MQTT_NO_REPLY_TIMEOUT_MS
+            int "Publisher no-reply timeout before channel rediscovery (ms, 0=disable)"
+            range 0 3600000
+            default 30000
+            depends on !ESPNOW_MQTT_PUBLISHER_MODE_SLEEP
+            help
+                How long the publisher waits without receiving ANY frame from the
+                broker before restarting channel discovery. Reset only by incoming
+                broker frames (REGISTER_ACK, ID_UNKNOWN, BROKER_ANNOUNCE).
+
+                INVARIANT: ANNOUNCE_INTERVAL_MS < NO_REPLY_TIMEOUT_MS.
+                Defaults (ANNOUNCE=10000, NO_REPLY=30000) satisfy this at 1:3.
+
+        config ESPNOW_MQTT_PUBLISHER_KEEPALIVE_MS
+            int "Publisher keepalive interval (ms, 0=disable)"
+            range 0 3600000
+            default 10000
+            depends on !ESPNOW_MQTT_PUBLISHER_MODE_SLEEP
+            help
+                How often the publisher sends a zero-payload PUBLISH on each
+                registered slot to reset the broker's per-publisher timeout timer.
+                Should be significantly less than the broker's PUBLISHER_TIMEOUT_MS.
+
+        config ESPNOW_MQTT_BOOT_JITTER_MS
+            int "Max random boot jitter before first channel probe (ms)"
+            range 0 5000
+            default 500
+            help
+                Each publisher picks a random delay in [0, BOOT_JITTER_MS) before
+                its first channel probe. Spreads simultaneous registrations after
+                a broker reboot, reducing collision probability.
+
+                For N=50 publishers the default 500ms gives ~2% per-pair collision
+                probability per channel. For N=200, increase to 2000ms.
+                Set to 0 only for single-publisher deployments.
+
+        config ESPNOW_MQTT_MAX_CHANNEL
+            int "Maximum WiFi channel number to probe during scan"
+            range 1 13
+            default 13
+
+        config ESPNOW_MQTT_PUBLISHER_TASK_STACK
+            int "Publisher task stack size (bytes)"
+            range 2048 16384
+            default 4096
+
+        config ESPNOW_MQTT_PUBLISHER_TASK_PRIO
+            int "Publisher task priority"
+            range 1 25
+            default 5
+            help
+                Keep below the WiFi task priority (23 on most configurations).
+                If publisher_task runs at a higher priority than the WiFi task,
+                esp_now_send() may deadlock waiting for a WiFi-task mutex.
+
+        config ESPNOW_MQTT_BROKER_PEER_NAME
+            string "Broker peer name (espnow_prov only, leave empty otherwise)"
+            default ""
+            help
+                Only relevant when using espnow_prov for peer management.
+                espnow_mqtt itself never reads this value — it is for the
+                application to call espnow_peer_mgr_find_by_name().
+
+        config ESPNOW_MQTT_PUBLISHER_EXPECTED_ANNOUNCE_INTERVAL_MS
+            int "Expected broker ANNOUNCE_INTERVAL_MS (split-build invariant, 0=disabled)"
+            range 0 3600000
+            default 0
+            depends on !ESPNOW_MQTT_PUBLISHER_MODE_SLEEP
+            help
+                In a ROLE=PUBLISHER-only build the broker's ANNOUNCE_INTERVAL_MS
+                is in a separate sdkconfig. Set this to match it. A build-time
+                #error fires if this value >= NO_REPLY_TIMEOUT_MS.
+                0 (default): check disabled. Use for BOTH builds.
+
+    endmenu  # Publisher options
+
+    # =========================================================================
+    # Broker options
+    # =========================================================================
+
+    menu "Broker options"
+        depends on ESPNOW_MQTT_ROLE != 1
+
+        config ESPNOW_MQTT_MAX_TOPICS
+            int "Maximum registered (publisher_mac, topic_string) pairs"
+            range 1 254
+            default 32
+            help
+                Maximum unique (publisher_mac, topic_string) pairs per boot session.
+                Capped at 254: topic_id is uint8_t, 0 is reserved, 255 wraps on increment.
+
+                Sizing: MAX_TOPICS >= expected_publishers x MAX_PUBLISHER_TOPICS.
+                For OTA deployments: x 2 (old topic entries are not reclaimed within a
+                boot session when publishers change topic strings after OTA).
+
+        config ESPNOW_MQTT_HEAP_TOPICS
+            bool "Use heap-allocated topic strings in broker registry"
+            default n
+            help
+                When disabled (default): char topic[249] inline per entry.
+                Total registry RAM: MAX_TOPICS x 264 bytes ~= 8.3 KB at default.
+
+                When enabled: topic strings heap-allocated via strdup().
+                Reduces static RAM by ~(249 - avg_topic_len) x MAX_TOPICS bytes.
+                Trade-off: heap fragmentation risk under sustained registration/removal.
+
+        config ESPNOW_MQTT_DISPATCH_QUEUE_SIZE
+            int "Dispatch queue depth (number of frames)"
+            range 4 64
+            default 16
+            help
+                Each slot = sizeof(espnow_broker_queue_item_t) bytes static RAM (~284 bytes).
+                Default 16: ~4.5 KB. Reduce to 4-8 on RAM-constrained targets.
+
+        config ESPNOW_MQTT_QUEUE_DROP_POLICY
+            int "Dispatch queue drop policy (0=drop newest, 1=drop oldest)"
+            range 0 1
+            default 0
+            help
+                0 (drop newest, default): incoming frame dropped; oldest data preserved.
+                1 (drop oldest): oldest queued frame discarded; new frame enqueued.
+
+        config ESPNOW_MQTT_MAX_TRACKED_PEERS
+            int "Maximum publishers tracked for per-MAC sequence counting"
+            range 1 254
+            default 64
+
+        config ESPNOW_MQTT_MAX_SUBSCRIPTIONS
+            int "Maximum local subscriptions"
+            range 1 64
+            default 16
+
+        config ESPNOW_MQTT_BROKER_DISPATCH_TASK_STACK
+            int "Broker dispatch task stack size (bytes)"
+            range 2048 16384
+            default 4096
+            help
+                Increase if subscriber callbacks perform stack-heavy operations
+                (JSON serialization, MQTT publish, NVS writes).
+
+        config ESPNOW_MQTT_BROKER_DISPATCH_TASK_PRIO
+            int "Broker dispatch task priority"
+            range 1 25
+            default 5
+            help
+                Keep below the WiFi task priority (23 on most configurations).
+
+        config ESPNOW_MQTT_ANNOUNCE_INTERVAL_MS
+            int "Broker announce broadcast interval (ms)"
+            range 1000 3600000
+            default 10000
+            help
+                How often the broker broadcasts BROKER_ANNOUNCE.
+                INVARIANT: ANNOUNCE_INTERVAL_MS < NO_REPLY_TIMEOUT_MS (publisher-side).
+                Default 10000ms satisfies this at 1:3 with publisher default of 30000ms.
+                Do not increase above NO_REPLY_TIMEOUT_MS / 2.
+
+        config ESPNOW_MQTT_PUBLISHER_TIMEOUT_MS
+            int "Broker publisher radio-silence timeout (ms, 0=disable)"
+            range 0 86400000
+            default 90000
+            help
+                How long a publisher must be radio-silent before the timeout callback
+                fires. Should be at least 2-3x PUBLISHER_KEEPALIVE_MS to avoid false alerts.
+
+    endmenu  # Broker options
+
+    # =========================================================================
+    # Security options
+    # =========================================================================
+
+    menu "Security"
+
+        config ESPNOW_MQTT_PAYLOAD_HMAC
+            bool "Enable optional HMAC-SHA256 payload integrity checking"
+            default n
+            help
+                Adds a 16-byte HMAC-SHA256 tag prepended to every PUBLISH payload.
+                Detects accidental RF corruption and naive (non-sniffing) replay.
+                NOT a security mechanism against active attackers or eavesdroppers
+                (frames are still plaintext). See 08_optional_payload_integrity.md.
+
+                Reduces maximum PUBLISH payload from 246 to 230 bytes.
+                Uses mbed TLS software path (not the hardware HMAC peripheral).
+
+        config ESPNOW_MQTT_HMAC_SECRET
+            string "HMAC shared secret (development default — replace for production)"
+            default "change-me-before-deployment"
+            depends on ESPNOW_MQTT_PAYLOAD_HMAC
+            help
+                Compiled into firmware. All publishers in a deployment share the
+                same secret unless per-device derivation is implemented.
+
+                For production: burn the secret to an eFuse block as a readable
+                field and load it at boot with esp_efuse_read_field_blob().
+                Do NOT use the hardware HMAC peripheral path for this mechanism.
+                See 08_optional_payload_integrity.md §Production Key Storage.
+
+    endmenu  # Security
+
+endmenu  # ESP-NOW MQTT
