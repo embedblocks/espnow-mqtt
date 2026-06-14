@@ -20,6 +20,17 @@
 #include "esp_now.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
+
+/* Build-time contract check.
+ * MAX_TOPICS must be >= MAX_PUBLISHER_TOPICS so the registry can hold
+ * at least one fully-registered publisher. The correct sizing is:
+ *   MAX_TOPICS >= expected_publisher_count x MAX_PUBLISHER_TOPICS
+ * Set both in sdkconfig.defaults (or menuconfig) before building. */
+#if CONFIG_ESPNOW_MQTT_MAX_TOPICS < CONFIG_ESPNOW_MQTT_MAX_PUBLISHER_TOPICS
+#error "CONFIG_ESPNOW_MQTT_MAX_TOPICS must be >= CONFIG_ESPNOW_MQTT_MAX_PUBLISHER_TOPICS. "\
+       "Correct sizing: MAX_TOPICS >= expected_publisher_count x MAX_PUBLISHER_TOPICS. "\
+       "Update sdkconfig.defaults or run idf.py menuconfig → ESP-NOW MQTT."
+#endif
 #if defined(CONFIG_ESPNOW_MQTT_PAYLOAD_HMAC)
 #include "espnow_mqtt_hmac.h"
 #endif
@@ -345,6 +356,9 @@ void broker_handle_register(const uint8_t *src_mac,
     espnow_topic_entry_t *existing = registry_find_by_topic(src_mac, topic_str);
     if (existing) {
         /* Re-registration: update seq baseline and send the same topic_id. */
+        ESP_LOGI(TAG, "register: re-reg elapsed_ms=%lu mac=%02x:...: topic='%s' id=%d",
+         (unsigned long)((uint32_t)(esp_timer_get_time()/1000) - existing->last_rx_ms),
+         src_mac[0], topic_str, existing->topic_id);
         ESP_LOGI(TAG, "register: re-registration mac=%02x:...: topic='%s' id=%d",
                  src_mac[0], topic_str, existing->topic_id);
         espnow_seq_entry_t *se = seq_track_find_or_create(src_mac);
