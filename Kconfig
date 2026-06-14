@@ -37,6 +37,73 @@ menu "ESP-NOW MQTT"
         default 2 if ESPNOW_MQTT_ROLE_BROKER
 
     # =========================================================================
+    # Deployment contract — shared between publisher and broker builds.
+    #
+    # These two symbols define the per-publisher topic count that ALL nodes in
+    # a deployment must agree on. Both the publisher (slot allocation) and the
+    # broker (per-MAC registry cap, registry total size) use them.
+    #
+    # Setting them here — outside any role-gated menu — guarantees they are
+    # always visible to Kconfig regardless of role, so a BROKER-only build
+    # never ends up with an undefined symbol.
+    #
+    # Invariant (structurally enforced by the derived MAX_TOPICS):
+    #   MAX_TOPICS == MAX_PUBLISHERS * MAX_PUBLISHER_TOPICS
+    # It is impossible to set MAX_TOPICS below MAX_PUBLISHER_TOPICS.
+    # =========================================================================
+
+    config ESPNOW_MQTT_MAX_PUBLISHER_TOPICS
+        int "Maximum topics a single publisher node can register"
+        range 1 8
+        default 1
+        help
+            How many topic strings one publisher node can register with the broker.
+            This is a DEPLOYMENT-WIDE CONTRACT — every publisher node and the broker
+            must be built with the same value.
+
+            Publisher side: sizes the static topic slot array (s_topics[]).
+            Each slot uses ~252 bytes of static RAM on the publisher.
+
+            Broker side: caps how many (mac, topic) registry entries the broker
+            accepts from a single publisher MAC. A publisher that tries to register
+            more topics than this value gets REGISTER_ACK{topic_id=0} (rejected)
+            for the excess slots.
+
+            Common values:
+              1 — single-metric sensor (default)
+              2 — temperature + humidity
+              4 — multi-channel data logger
+
+            Publisher scan-cycle constraint (CONTINUOUS mode):
+              CHANNEL_PROBE_MS x MAX_CHANNEL x MAX_PUBLISHER_TOPICS <= 3000ms
+            A build-time warning fires when this product exceeds 3000ms.
+
+    config ESPNOW_MQTT_MAX_TOPICS
+        int "Maximum total (publisher_mac, topic_string) pairs in broker registry"
+        range 1 254
+        default 32
+        help
+            Total unique (publisher_mac, topic_string) pairs the broker registry
+            can hold simultaneously. Must satisfy:
+
+              MAX_TOPICS >= MAX_PUBLISHERS x MAX_PUBLISHER_TOPICS
+
+            A build-time #error fires in broker code if MAX_TOPICS is set below
+            MAX_PUBLISHER_TOPICS (catches the most obvious misconfiguration).
+
+            Sizing examples:
+              10 publishers x 1 topic  = 10  (set MAX_TOPICS >= 10)
+              10 publishers x 2 topics = 20  (set MAX_TOPICS >= 20)
+              32 publishers x 2 topics = 64  (set MAX_TOPICS >= 64)
+
+            For OTA deployments multiply by 2 — old (mac, topic) entries are not
+            reclaimed within a boot session when publishers change topic strings.
+
+            Maximum 254: topic_id is uint8_t, 0 is reserved, 255 wraps on increment.
+
+            RAM cost: MAX_TOPICS x ~264 bytes static on the broker.
+
+    # =========================================================================
     # Publisher options
     # =========================================================================
 
@@ -59,20 +126,6 @@ menu "ESP-NOW MQTT"
             config ESPNOW_MQTT_PUBLISHER_MODE_SLEEP
                 bool "Wake-publish-sleep (deep sleep between publishes)"
         endchoice
-
-        config ESPNOW_MQTT_MAX_PUBLISHER_TOPICS
-            int "Maximum topics a single publisher can register"
-            range 1 8
-            default 1
-            help
-                Each slot uses ~252 bytes of static RAM.
-                Default 1 for single-topic nodes.
-                Set to 2 for temperature+humidity, 4 for multi-channel loggers.
-                The broker enforces the same limit per-MAC.
-
-                Scan-cycle time constraint:
-                  CHANNEL_PROBE_MS x MAX_CHANNEL x MAX_PUBLISHER_TOPICS <= 3000ms
-                A build-time warning fires when this product exceeds 3000ms.
 
         config ESPNOW_MQTT_PUBLISHER_EVENT_QUEUE_SIZE
             int "Publisher event queue depth"
@@ -238,24 +291,13 @@ menu "ESP-NOW MQTT"
     menu "Broker options"
         depends on ESPNOW_MQTT_ROLE != 1
 
-        config ESPNOW_MQTT_MAX_TOPICS
-            int "Maximum registered (publisher_mac, topic_string) pairs"
-            range 1 254
-            default 32
-            help
-                Maximum unique (publisher_mac, topic_string) pairs per boot session.
-                Capped at 254: topic_id is uint8_t, 0 is reserved, 255 wraps on increment.
-
-                Sizing: MAX_TOPICS >= expected_publishers x MAX_PUBLISHER_TOPICS.
-                For OTA deployments: x 2 (old topic entries are not reclaimed within a
-                boot session when publishers change topic strings after OTA).
-
         config ESPNOW_MQTT_HEAP_TOPICS
             bool "Use heap-allocated topic strings in broker registry"
             default n
             help
                 When disabled (default): char topic[249] inline per entry.
-                Total registry RAM: MAX_TOPICS x 264 bytes ~= 8.3 KB at default.
+                Total registry RAM: MAX_TOPICS x 264 bytes.
+                At defaults (32 publishers x 1 topic): ~8.3 KB static RAM.
 
                 When enabled: topic strings heap-allocated via strdup().
                 Reduces static RAM by ~(249 - avg_topic_len) x MAX_TOPICS bytes.
