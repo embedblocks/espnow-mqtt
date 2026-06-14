@@ -1,7 +1,69 @@
-# Publisher example sdkconfig
+# =============================================================================
+# basic_sensor — sdkconfig.defaults
+#
+# Applied automatically by "idf.py build". No menuconfig needed for these.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# espnow_mqtt component — publisher role
+# -----------------------------------------------------------------------------
 CONFIG_ESPNOW_MQTT_ROLE_PUBLISHER=y
 CONFIG_ESPNOW_MQTT_PUBLISHER_MODE_CONTINUOUS=y
+
+# Number of topic slots this publisher uses. This example uses 2 (temp + humidity).
+# DEPLOYMENT-WIDE CONTRACT: must match MAX_PUBLISHER_TOPICS on the broker.
 CONFIG_ESPNOW_MQTT_MAX_PUBLISHER_TOPICS=2
+
+
+# Publish event queue depth. Each slot ≈ 268 bytes static RAM.
+CONFIG_ESPNOW_MQTT_PUBLISHER_EVENT_QUEUE_SIZE=4
+
+# Per-channel probe wait during channel scan (ms).
+# 20 ms × 13 channels × 2 topics = 520 ms worst-case scan (well under 3000 ms limit).
+CONFIG_ESPNOW_MQTT_CHANNEL_PROBE_MS=20
+
+# Highest WiFi channel number to probe.
+CONFIG_ESPNOW_MQTT_MAX_CHANNEL=13
+
+# Random boot delay before first channel probe (ms).
+# Spreads simultaneous registrations after a broker reboot.
 CONFIG_ESPNOW_MQTT_BOOT_JITTER_MS=500
+
+# Single-slot scan budget for PARTIALLY_REGISTERED recovery (ms).
+CONFIG_ESPNOW_MQTT_REGISTER_TIMEOUT_MS=500
+
+# Fast scan cycles before switching to slow fixed-interval retry.
+CONFIG_ESPNOW_MQTT_REGISTER_MAX_RETRIES=5
+
+# Slow retry interval after MAX_RETRIES exceeded (ms).
+CONFIG_ESPNOW_MQTT_REGISTER_SLOW_INTERVAL_MS=30000
+
+# 0 = retry forever (never enter UNPROVISIONED state).
+CONFIG_ESPNOW_MQTT_MAX_REDISCOVER_ATTEMPTS=0
+
+# Consecutive rejections before permanent slot lock.
+CONFIG_ESPNOW_MQTT_MAX_CONSECUTIVE_REJECTIONS=10
+
+# Consecutive SEND_FAILs in send_cb before triggering channel rediscover.
+CONFIG_ESPNOW_MQTT_INTERNAL_ERR_THRESHOLD=5
+
+# Broker silence timeout before channel rediscover (ms).
+# Invariant: must be > KEEPALIVE_MS.
+CONFIG_ESPNOW_MQTT_NO_REPLY_TIMEOUT_MS=30000
+
+# Keepalive interval — zero-payload PUBLISH to reset broker timeout timer (ms).
+# Must be < NO_REPLY_TIMEOUT_MS.
+CONFIG_ESPNOW_MQTT_PUBLISHER_KEEPALIVE_MS=10000
+
+# Publisher task stack and priority.
+CONFIG_ESPNOW_MQTT_PUBLISHER_TASK_STACK=4096
+CONFIG_ESPNOW_MQTT_PUBLISHER_TASK_PRIO=5
+
+# HMAC payload integrity: disabled by default.
+CONFIG_ESPNOW_MQTT_PAYLOAD_HMAC=n
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_DEFAULT_LEVEL=3
