@@ -356,9 +356,7 @@ void broker_handle_register(const uint8_t *src_mac,
     espnow_topic_entry_t *existing = registry_find_by_topic(src_mac, topic_str);
     if (existing) {
         /* Re-registration: update seq baseline and send the same topic_id. */
-        ESP_LOGI(TAG, "register: re-reg elapsed_ms=%lu mac=%02x:...: topic='%s' id=%d",
-         (unsigned long)((uint32_t)(esp_timer_get_time()/1000) - existing->last_rx_ms),
-         src_mac[0], topic_str, existing->topic_id);
+        
         ESP_LOGI(TAG, "register: re-registration mac=%02x:...: topic='%s' id=%d",
                  src_mac[0], topic_str, existing->topic_id);
         espnow_seq_entry_t *se = seq_track_find_or_create(src_mac);
