@@ -1,29 +1,49 @@
 # espnow_mqtt
 
-Lightweight MQTT-like publish/subscribe over ESP-NOW. A WiFi-connected broker
-node receives sensor data from battery-powered publisher nodes — no MQTT broker
-in the cloud, no TCP stack on the sensors.
-
-**Requires ESP-IDF ≥ 5.5.0.**
+Lightweight MQTT-like publish/subscribe over ESP-NOW for ESP-IDF ≥ 5.5.0.
 
 ---
 
 ## Overview
 
+This component implements a **two-node-type architecture**. There is no third
+party involved — the broker and the subscriber are the same physical node.
+
 ```
-Publisher (ESP32-C3)          Broker (ESP32)
-  sensors/node1/temp   ──►   WiFi AP ──► MQTT / HTTP / DB
-  sensors/node1/humidity ──►
-  (no WiFi association)        (ESP-NOW + WiFi STA)
+┌─────────────────────────────────┐       ESP-NOW        ┌──────────────────────────────────────┐
+│  Publisher node                 │ ───────────────────► │  Broker node                         │
+│                                 │                       │                                      │
+│  • Sensor firmware              │                       │  • WiFi STA connected to AP          │
+│  • No WiFi AP connection        │                       │  • Hosts the subscriber callbacks    │
+│  • Battery powered              │                       │  • Forwards data upstream            │
+│  • ESP32-C3 / ESP32-S3 etc.     │                       │  • ESP32 / ESP32-S3                  │
+└─────────────────────────────────┘                       └──────────────────────────────────────┘
+         sends sensor readings                                   receives + acts on them
+         via ESP-NOW frames                                      (log, MQTT, HTTP, DB…)
 ```
 
-- Publishers register topic strings with the broker and receive a 1-byte
-  `topic_id`. All subsequent PUBLISH frames use only the `topic_id` — no
-  string overhead on the wire.
-- The broker stores `(topic_id, sender_mac) → topic_string` in a static
-  registry and fans out to local subscriber callbacks.
-- Frames are ≤ 250 bytes (ESP-NOW maximum). No fragmentation.
-- Publisher nodes never join a WiFi AP. The broker does.
+**Publisher nodes** are sensor devices. They register their topic strings with
+the broker once, then publish data using only a 1-byte `topic_id` — no string
+overhead on the wire after the first exchange. They never join a WiFi AP.
+
+**The broker node** is the single WiFi-connected hub. It maintains a registry
+of `(publisher_mac, topic_string) → topic_id` and delivers incoming PUBLISH
+frames to **subscriber callbacks registered on the same node**. The subscriber
+is not a separate device — it is application code running on the broker node
+that receives the data and decides what to do with it (forward to MQTT, write
+to a database, trigger an actuator, etc.).
+
+```
+Broker node internals:
+  recv_cb (WiFi task)
+    └── REGISTER frames → registry → send REGISTER_ACK
+    └── PUBLISH frames  → dispatch queue
+          └── broker_dispatch_task
+                └── subscriber callback 1: on_sensor_data() → forward to MQTT
+                └── subscriber callback 2: on_sensor_data() → write to SD card
+```
+
+Frames are ≤ 250 bytes (ESP-NOW maximum). No fragmentation.
 
 ---
 
@@ -102,11 +122,24 @@ completes will not receive a `BROKER_ANNOUNCE` and will spend `CHANNEL_PROBE_MS
 
 ### Role
 
-| Symbol | Type | Default | Description |
-|--------|------|---------|-------------|
-| `ESPNOW_MQTT_ROLE_BOTH` | bool | y | Publisher + broker in same firmware |
-| `ESPNOW_MQTT_ROLE_PUBLISHER` | bool | n | Publisher only (strips broker code) |
-| `ESPNOW_MQTT_ROLE_BROKER` | bool | n | Broker only (strips publisher code) |
+In a real deployment you always build two separate firmwares:
+
+| Firmware | Role to set | Result |
+|----------|-------------|--------|
+| Sensor / publisher node | `ESPNOW_MQTT_ROLE_PUBLISHER` | Broker code stripped, smaller flash |
+| Hub / broker node | `ESPNOW_MQTT_ROLE_BROKER` | Publisher code stripped, smaller flash |
+
+The `ROLE_BOTH` option compiles publisher and broker code into the same
+firmware. **This is only useful during development** — for example to run both
+roles on a single devkit to verify the component works before you have two
+boards. It is the Kconfig default purely because it requires no configuration
+to build. Do not use it in production firmware.
+
+| Symbol | Type | Default | Notes |
+|--------|------|---------|-------|
+| `ESPNOW_MQTT_ROLE_PUBLISHER` | bool | n | **Use this for all sensor nodes** |
+| `ESPNOW_MQTT_ROLE_BROKER` | bool | n | **Use this for the hub node** |
+| `ESPNOW_MQTT_ROLE_BOTH` | bool | y | Development / single-board testing only |
 
 ### Publisher Options
 
