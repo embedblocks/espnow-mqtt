@@ -497,6 +497,11 @@ static void publisher_scan_single_slot(int slot)
             }
         }
     }
+    s_scanning_slot = -1;
+    /* Restore WiFi to locked broker channel after single-slot scan. */
+    if (s_broker_channel != 0) {
+        esp_wifi_set_channel(s_broker_channel, WIFI_SECOND_CHAN_NONE);
+    }
     update_state();
 }
 
@@ -644,6 +649,13 @@ static void publisher_scan_all_slots(void)
     s_scanning_slot   = -1;
     s_scan_active     = false;
     s_scan_continuous = false;
+    /* Restore WiFi channel to the locked broker channel.
+     * The scan loop leaves the radio on the last probed channel.
+     * All PUBLISH frames must go out on s_broker_channel. */
+    if (s_broker_channel != 0) {
+        esp_wifi_set_channel(s_broker_channel, WIFI_SECOND_CHAN_NONE);
+        ESP_LOGD(TAG, "scan: restored WiFi to broker ch %d", s_broker_channel);
+    }
     update_state();
 }
 
