@@ -1,4 +1,4 @@
-# espnow_mqtt
+# espnow-mqtt
 
 ![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v5.5%2B-blue)
 ![Espressif Component Registry](https://img.shields.io/badge/Espressif-Component%20Registry-orange)
@@ -119,14 +119,14 @@ publisher's REGISTER frames will be silently dropped by the trust filter.
 ## Installation
 
 ```bash
-idf.py add-dependency "espnow_mqtt^0.2.0"
+idf.py add-dependency "espnow-mqtt^0.2.0"
 ```
 
 Or in `idf_component.yml`:
 
 ```yaml
 dependencies:
-  espnow_mqtt: "^0.2.0"
+  espnow-mqtt: "^0.2.0"
 ```
 
 Requires **ESP-IDF ≥ 5.5.0**. Both `recv_cb` and `send_cb` use the struct-parameter
