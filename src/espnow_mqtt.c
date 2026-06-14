@@ -298,12 +298,20 @@ static void espnow_send_cb(const esp_now_send_info_t *tx_info,
     if (status == ESP_NOW_SEND_SUCCESS) {
         s_no_ack_consecutive = 0;
     } else {
-        /* ESP_NOW_SEND_FAIL = L1 ACK not received. */
-        s_publisher_stats.no_ack_count++;  /* counted, never logged at WARN */
-
-        /* Only trigger rediscover when not already scanning — avoids
-         * sending redundant rediscover events during a channel sweep. */
+        /* ESP_NOW_SEND_FAIL = L1 ACK not received.
+         *
+         * REGISTER frames sent during a channel scan always produce SEND_FAIL
+         * on wrong channels (no one to ACK them) — this is expected behaviour,
+         * not an RF quality indicator. Exclude them from no_ack_count and from
+         * the consecutive-fail rediscover counter so scans don't trigger a
+         * spurious rediscover loop and don't pollute the stats.
+         *
+         * s_scan_active is set true for the entire duration of a channel sweep
+         * (publisher_scan_all_slots / publisher_scan_single_slot) and cleared
+         * immediately when the scan finishes. */
         if (!s_scan_active) {
+            /* Real PUBLISH frame SEND_FAIL — count it and check threshold. */
+            s_publisher_stats.no_ack_count++;
             s_no_ack_consecutive++;
             if (s_no_ack_consecutive >=
                     CONFIG_ESPNOW_MQTT_INTERNAL_ERR_THRESHOLD) {
@@ -311,6 +319,7 @@ static void espnow_send_cb(const esp_now_send_info_t *tx_info,
                 publisher_trigger_rediscover_async();
             }
         }
+        /* Scan REGISTER SEND_FAILs: silently dropped — no stat, no counter. */
     }
 #endif /* SLEEP vs CONTINUOUS */
 #endif /* !ROLE_BROKER */
