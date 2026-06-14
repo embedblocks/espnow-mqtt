@@ -54,6 +54,39 @@ Frames are ≤ 250 bytes (ESP-NOW maximum). No fragmentation. No TCP. No cloud d
 
 ---
 
+## Examples
+
+Two complementary examples ship with the component — one for each node type.
+Build and flash them together to see the full system working end to end.
+
+| Example | Node type | What it does |
+|---------|-----------|--------------|
+| `examples/publisher/basic_sensor` | Publisher | Registers two topics (`sensors/node1/temp`, `sensors/node1/humidity`), publishes synthetic float readings every 5 s |
+| `examples/broker/basic_broker` | Broker | Connects to WiFi, starts the broker, subscribes to `sensors/+/temp` and `sensors/+/humidity`, logs every received value |
+
+The broker example uses the three-phase boot sequence — the correct pattern for
+any production broker firmware. The publisher example uses CONTINUOUS mode and
+demonstrates `wait_registered()`, periodic stats logging, and graceful handling
+of the case where the broker is not yet available at publisher boot time.
+
+Both examples require you to fill in the peer MAC address before building. The
+README in each example directory gives step-by-step instructions including how
+to read the MAC from a board without writing any code:
+
+```bash
+# Linux / macOS
+esptool.py --port /dev/ttyUSB0 read_mac
+
+# Windows
+esptool.py --port COM3 read_mac
+```
+
+Flash order matters: **flash the broker first**. The broker must be running and
+have the publisher's MAC in its peer table before the publisher boots, or the
+publisher's REGISTER frames will be silently dropped by the trust filter.
+
+---
+
 ## Features
 
 * **Zero string overhead after registration** — 1-byte `topic_id` on every PUBLISH frame
@@ -86,14 +119,14 @@ Frames are ≤ 250 bytes (ESP-NOW maximum). No fragmentation. No TCP. No cloud d
 ## Installation
 
 ```bash
-idf.py add-dependency "espnow_mqtt^0.1.0"
+idf.py add-dependency "espnow_mqtt^0.2.0"
 ```
 
 Or in `idf_component.yml`:
 
 ```yaml
 dependencies:
-  espnow_mqtt: "^0.1.0"
+  espnow_mqtt: "^0.2.0"
 ```
 
 Requires **ESP-IDF ≥ 5.5.0**. Both `recv_cb` and `send_cb` use the struct-parameter
