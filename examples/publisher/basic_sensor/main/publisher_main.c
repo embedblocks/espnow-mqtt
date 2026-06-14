@@ -55,7 +55,7 @@ static const char *TAG = "basic_sensor";
  * ========================================================================= */
 
 /* Set to 1 after filling in BROKER_MAC below. */
-#define BROKER_MAC_CONFIGURED 1
+#define BROKER_MAC_CONFIGURED 0
 
 #if BROKER_MAC_CONFIGURED == 0
 #error "Broker MAC address not configured! "        "Run 'esptool.py --port /dev/ttyUSB0 read_mac' (Linux/macOS) or "        "'esptool.py --port COM3 read_mac' (Windows) on the BROKER board, "        "then fill in BROKER_MAC[] below and set BROKER_MAC_CONFIGURED to 1. "        "See examples/publisher/basic_sensor/README.md for full instructions."
@@ -67,7 +67,7 @@ static const char *TAG = "basic_sensor";
  *   static const uint8_t BROKER_MAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
  */
 //static const uint8_t BROKER_MAC[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-static const uint8_t BROKER_MAC[6] = {0xE4, 0x65, 0xB8, 0x19, 0xF0, 0x2C};
+static const uint8_t BROKER_MAC[6] = {0x04, 0x65, 0xB8, 0x19, 0xF0, 0x2C};
 
 /* Publish interval (ms). */
 #define PUBLISH_INTERVAL_MS   5000
