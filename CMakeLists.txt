@@ -36,7 +36,7 @@ idf_component_register(
     PRIV_INCLUDE_DIRS
         "src"
     REQUIRES
-        esp_now
+        #esp_now
         esp_wifi
         nvs_flash
         freertos
