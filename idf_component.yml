@@ -6,8 +6,8 @@ description: >
   central WiFi-connected broker, no fragmentation, 250-byte frame discipline.
   Requires ESP-IDF >= 5.5.0.
 
-url: "https://github.com/YOUR_ORG/espnow_mqtt"
-repository: "https://github.com/YOUR_ORG/espnow_mqtt.git"
+url: "https://github.com/khiyamiftikhar/espnow-mqtt.git"
+repository: "https://github.com/khiyamiftikhar/espnow-mqtt.git"
 
 license: "MIT"
 
@@ -17,6 +17,17 @@ targets:
   - esp32c3
   - esp32c6
   - esp32s2     # Publisher role only — broker role not tested on S2 (RAM headroom)
+
+files:
+   use_gitignore: true
+   exclude:
+      - ".git/**/*"
+      - "docs/**/*"
+      - "dist/**/*"
+      - "*.docx"
+      - "*.bin"
+      
+
 
 dependencies:
   idf: ">=5.5.0"
