@@ -111,6 +111,7 @@ static uint8_t                   s_broker_mac[6]      = {0};
 static uint8_t                   s_broker_channel     = 0;
 volatile bool                    s_scan_active        = false;   /* extern in espnow_mqtt.c */
 static volatile bool             s_scan_continuous    = false;
+static volatile int              s_scanning_slot      = -1;      /* slot index currently being probed; -1 = not scanning */
 static bool                      s_had_successful_session = false;
 static bool                      s_broker_set         = false;
 static bool                      s_initialized        = false;   /* publisher-local init flag */
@@ -186,15 +187,26 @@ void publisher_handle_register_ack(const uint8_t *src_mac,
          * with topic_id == 0 at the lowest index. We store the ACK id in
          * a single-slot variable protected by the event group ordering.
          */
-        for (int i = 0; i < s_topic_count; i++) {
-            if (!s_topics[i].registered && !s_topics[i].perm_rejected) {
-                s_topics[i].topic_id              = topic_id;
-                s_topics[i].registered            = true;
-                s_topics[i].consecutive_rejections = 0;
-                ESP_LOGI(TAG, "register_ack: slot %d topic='%s' id=%d",
-                         i, s_topics[i].topic_str, topic_id);
-                break;
-            }
+        /* Apply ACK only to the slot currently being probed.
+         * Matching on s_scanning_slot prevents late/duplicate ACKs
+         * (from earlier channel probes still in-flight) from being
+         * applied to the wrong slot. */
+        int target = (s_scanning_slot >= 0 && s_scanning_slot < s_topic_count)
+                     ? s_scanning_slot : -1;
+        if (target >= 0 && !s_topics[target].registered &&
+            !s_topics[target].perm_rejected) {
+            s_topics[target].topic_id              = topic_id;
+            s_topics[target].registered            = true;
+            s_topics[target].consecutive_rejections = 0;
+            ESP_LOGI(TAG, "register_ack: slot %d topic='%s' id=%d",
+                     target, s_topics[target].topic_str, topic_id);
+        } else {
+            /* Late/duplicate ACK — slot already registered or no scan active.
+             * Silently discard: do not update any slot, do not set the bit. */
+            ESP_LOGD(TAG, "register_ack: late/dup ACK id=%d discarded "
+                     "(scanning_slot=%d)", topic_id, s_scanning_slot);
+            update_state();
+            return;
         }
         /* Signal the scan loop waiting on PROBE_EG_BIT_ACK. */
         if (s_probe_eg) {
@@ -203,23 +215,28 @@ void publisher_handle_register_ack(const uint8_t *src_mac,
         /* Reset no-reply timer on any positive ACK. */
         reset_no_reply_timer();
     } else {
-        /* Rejection: find the scanning slot (first unregistered). */
-        for (int i = 0; i < s_topic_count; i++) {
-            if (!s_topics[i].registered && !s_topics[i].perm_rejected) {
-                s_topics[i].consecutive_rejections++;
-                ESP_LOGD(TAG, "register_ack: slot %d rejected (%d/%d)",
-                         i, s_topics[i].consecutive_rejections,
-                         CONFIG_ESPNOW_MQTT_MAX_CONSECUTIVE_REJECTIONS);
-                if (s_topics[i].consecutive_rejections >=
-                        CONFIG_ESPNOW_MQTT_MAX_CONSECUTIVE_REJECTIONS) {
-                    s_topics[i].perm_rejected = true;
-                    ESP_LOGE(TAG, "register_ack: slot %d permanently rejected "
-                             "topic='%s'. Call espnow_mqtt_clear_perm_rejected() "
-                             "then rediscover() to retry.",
-                             i, s_topics[i].topic_str);
-                }
-                break;
+        /* Rejection: apply only to the slot currently being probed. */
+        int rtarget = (s_scanning_slot >= 0 && s_scanning_slot < s_topic_count)
+                      ? s_scanning_slot : -1;
+        if (rtarget >= 0 && !s_topics[rtarget].registered &&
+            !s_topics[rtarget].perm_rejected) {
+            s_topics[rtarget].consecutive_rejections++;
+            ESP_LOGD(TAG, "register_ack: slot %d rejected (%d/%d)",
+                     rtarget, s_topics[rtarget].consecutive_rejections,
+                     CONFIG_ESPNOW_MQTT_MAX_CONSECUTIVE_REJECTIONS);
+            if (s_topics[rtarget].consecutive_rejections >=
+                    CONFIG_ESPNOW_MQTT_MAX_CONSECUTIVE_REJECTIONS) {
+                s_topics[rtarget].perm_rejected = true;
+                ESP_LOGE(TAG, "register_ack: slot %d permanently rejected "
+                         "topic='%s'. Call espnow_mqtt_clear_perm_rejected() "
+                         "then rediscover() to retry.",
+                         rtarget, s_topics[rtarget].topic_str);
             }
+        } else {
+            ESP_LOGD(TAG, "register_ack: late/dup rejection discarded "
+                     "(scanning_slot=%d)", s_scanning_slot);
+            update_state();
+            return;
         }
         /* Signal the scan loop so it advances to the next channel / exits. */
         if (s_probe_eg) {
@@ -467,6 +484,7 @@ static void publisher_scan_single_slot(int slot)
 
         esp_wifi_set_channel(channels[i], WIFI_SECOND_CHAN_NONE);
         xEventGroupClearBits(s_probe_eg, PROBE_EG_BIT_ACK);
+        s_scanning_slot = slot;
         esp_now_send(s_broker_mac, frame_buf, frame_len);
         s_publisher_stats.register_count++;
 
@@ -549,6 +567,11 @@ static void publisher_scan_all_slots(void)
                 esp_wifi_set_channel(channels[ci], WIFI_SECOND_CHAN_NONE);
                 xEventGroupClearBits(s_probe_eg, PROBE_EG_BIT_ACK);
 
+                /* Tell register_ack handler which slot this ACK belongs to.
+                 * Must be set before esp_now_send so any fast ACK is routed
+                 * correctly even before WaitBits returns. */
+                s_scanning_slot = slot;
+
                 esp_now_send(s_broker_mac, frame_buf, frame_len);
                 s_publisher_stats.register_count++;
 
@@ -569,6 +592,7 @@ static void publisher_scan_all_slots(void)
                 }
                 /* Timeout on this channel: try the next. */
             }
+            s_scanning_slot = -1; /* slot probe done — discard any further late ACKs */
         }
 
         /* Re-count pending. */
@@ -617,6 +641,7 @@ static void publisher_scan_all_slots(void)
         vTaskDelay(pdMS_TO_TICKS(backoff_ms));
     }
 
+    s_scanning_slot   = -1;
     s_scan_active     = false;
     s_scan_continuous = false;
     update_state();
@@ -662,18 +687,43 @@ static void publisher_task(void *arg)
         case PUBLISHER_EVENT_BROKER_ANNOUNCE:
             ESP_LOGI(TAG, "publisher_task: BROKER_ANNOUNCE on ch %d",
                      evt.announce_channel);
-            /* Set hint channel BEFORE clearing slots and scanning. */
+            /*
+             * Only re-register if:
+             *   a) not yet registered (UNREGISTERED / UNPROVISIONED), OR
+             *   b) broker has moved to a different channel than the one we
+             *      locked onto — meaning our cached topic_ids are stale.
+             *
+             * If already REGISTERED on the same channel: the announce is
+             * proof the broker is still alive. Reset the no-reply watchdog
+             * timer only — do NOT clear slots or re-scan.
+             */
+            if (s_state == ESPNOW_MQTT_STATE_REGISTERED &&
+                (evt.announce_channel == 0 ||
+                 evt.announce_channel == s_broker_channel)) {
+                /* Broker alive, same channel — reset no-reply watchdog only.
+                 * Use xTimerReset (task context, not ISR). */
+#if defined(CONFIG_ESPNOW_MQTT_PUBLISHER_MODE_CONTINUOUS)
+#if CONFIG_ESPNOW_MQTT_NO_REPLY_TIMEOUT_MS > 0
+                if (s_no_reply_timer) {
+                    xTimerReset(s_no_reply_timer, 0);
+                }
+#endif
+#endif
+                ESP_LOGD(TAG, "broker_announce: already registered on ch %d — no re-register",
+                         s_broker_channel);
+                break;
+            }
+            /* Broker moved channels or we are not yet registered — re-register. */
             if (evt.announce_channel != 0) {
                 s_broker_channel = evt.announce_channel;
             }
             for (int i = 0; i < s_topic_count; i++) {
-                s_topics[i].topic_id  = 0;
+                s_topics[i].topic_id   = 0;
                 s_topics[i].registered = false;
             }
             if (s_registered_eg) {
                 xEventGroupClearBits(s_registered_eg, REGISTERED_EG_BIT);
             }
-            /* Reset cycle counter only for nodes with a prior session. */
             if (s_had_successful_session) {
                 s_rediscover_cycle_count = 0;
             }
@@ -735,6 +785,7 @@ static esp_err_t publisher_init(void)
     s_broker_channel         = 0;
     s_scan_active            = false;
     s_scan_continuous        = false;
+    s_scanning_slot          = -1;
     s_had_successful_session = false;
     s_broker_set             = false;
     s_rediscover_cycle_count = 0;
