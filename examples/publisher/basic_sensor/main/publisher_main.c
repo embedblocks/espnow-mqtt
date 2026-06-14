@@ -55,7 +55,7 @@ static const char *TAG = "basic_sensor";
  * ========================================================================= */
 
 /* Set to 1 after filling in BROKER_MAC below. */
-#define BROKER_MAC_CONFIGURED 0
+#define BROKER_MAC_CONFIGURED 1
 
 #if BROKER_MAC_CONFIGURED == 0
 #error "Broker MAC address not configured! "        "Run 'esptool.py --port /dev/ttyUSB0 read_mac' (Linux/macOS) or "        "'esptool.py --port COM3 read_mac' (Windows) on the BROKER board, "        "then fill in BROKER_MAC[] below and set BROKER_MAC_CONFIGURED to 1. "        "See examples/publisher/basic_sensor/README.md for full instructions."
@@ -66,7 +66,8 @@ static const char *TAG = "basic_sensor";
  * Example: if esptool prints "MAC: aa:bb:cc:dd:ee:ff", set:
  *   static const uint8_t BROKER_MAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
  */
-static const uint8_t BROKER_MAC[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+//static const uint8_t BROKER_MAC[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t BROKER_MAC[6] = {0xE4, 0x65, 0xB8, 0x19, 0xF0, 0x2C};
 
 /* Publish interval (ms). */
 #define PUBLISH_INTERVAL_MS   5000
@@ -185,7 +186,7 @@ void app_main(void)
     }
 
     /* Publish loop. */
-    uint32_t last_stats_ms = 0;
+    TickType_t last_stats_ticks = 0;
     while (1) {
         float temp = next_temperature();
         float hum  = next_humidity();
@@ -207,9 +208,9 @@ void app_main(void)
         }
 
         /* Periodic stats log. */
-        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
-        if ((now_ms - last_stats_ms) >= STATS_LOG_INTERVAL_MS) {
-            last_stats_ms = now_ms;
+        TickType_t now_ticks = xTaskGetTickCount();
+        if ((now_ticks - last_stats_ticks) >= pdMS_TO_TICKS(STATS_LOG_INTERVAL_MS)) {
+            last_stats_ticks = now_ticks;
             espnow_mqtt_publisher_stats_t stats;
             if (espnow_mqtt_get_publisher_stats(&stats) == ESP_OK) {
                 ESP_LOGI(TAG,
