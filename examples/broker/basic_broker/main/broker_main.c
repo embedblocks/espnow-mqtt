@@ -53,8 +53,8 @@ static const char *TAG = "basic_broker";
  * Alternatively set via: idf.py menuconfig → Example Configuration.
  */
 #ifndef CONFIG_EXAMPLE_WIFI_SSID
-#define WIFI_SSID  "YOUR_SSID"
-#define WIFI_PASS  "YOUR_PASSWORD"
+#define WIFI_SSID  "ssid"
+#define WIFI_PASS  "pass"
 #else
 #define WIFI_SSID  CONFIG_EXAMPLE_WIFI_SSID
 #define WIFI_PASS  CONFIG_EXAMPLE_WIFI_PASSWORD
@@ -97,6 +97,7 @@ static const char *TAG = "basic_broker";
  *   {0x11, 0x22, 0x33, 0x44, 0x55, 0x66},
  */
 static const uint8_t PUBLISHER_MACS[][6] = {
+    {0x00, 0x05, 0xbd, 0xfd, 0x41, 0x3c},
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},   /* publisher 1 — replace */
     /* {0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, */  /* publisher 2 — uncomment and set */
 };
