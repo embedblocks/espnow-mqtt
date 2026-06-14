@@ -1,0 +1,59 @@
+# =============================================================================
+# basic_broker — sdkconfig.defaults
+#
+# Applied automatically by "idf.py build". No menuconfig needed for these.
+# WiFi SSID and password must still be set via:
+#   idf.py menuconfig → Example Configuration → WiFi SSID / WiFi Password
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# espnow_mqtt component — broker role
+# -----------------------------------------------------------------------------
+CONFIG_ESPNOW_MQTT_ROLE_BROKER=y
+
+# Maximum topics a single publisher node can register.
+# DEPLOYMENT-WIDE CONTRACT: must match the value on all publisher nodes.
+# Broker uses this to cap per-MAC registry entries.
+CONFIG_ESPNOW_MQTT_MAX_PUBLISHER_TOPICS=2
+
+# Total (publisher_mac, topic_string) pairs the broker registry can hold.
+# Must satisfy: MAX_TOPICS >= expected_publisher_count x MAX_PUBLISHER_TOPICS
+# This example: 32 publishers x 2 topics = 64. x2 for OTA headroom = 128.
+# A build-time #error fires if MAX_TOPICS < MAX_PUBLISHER_TOPICS.
+CONFIG_ESPNOW_MQTT_MAX_TOPICS=64
+
+# Maximum local subscriber callbacks.
+CONFIG_ESPNOW_MQTT_MAX_SUBSCRIPTIONS=8
+
+# Dispatch queue depth. Each slot ≈ 284 bytes static RAM.
+CONFIG_ESPNOW_MQTT_DISPATCH_QUEUE_SIZE=16
+
+# Drop policy: 0 = drop newest incoming frame when queue full (default).
+CONFIG_ESPNOW_MQTT_QUEUE_DROP_POLICY=0
+
+# Per-publisher seq tracking slots.
+CONFIG_ESPNOW_MQTT_MAX_TRACKED_PEERS=64
+
+# How often the broker broadcasts BROKER_ANNOUNCE (ms).
+# Must be < publisher's NO_REPLY_TIMEOUT_MS (publisher default: 30000).
+CONFIG_ESPNOW_MQTT_ANNOUNCE_INTERVAL_MS=10000
+
+# Publisher radio-silence timeout before timeout callback fires (ms).
+# Should be >= 2× publisher KEEPALIVE_MS (publisher default: 10000).
+CONFIG_ESPNOW_MQTT_PUBLISHER_TIMEOUT_MS=90000
+
+# Broker dispatch task stack and priority.
+CONFIG_ESPNOW_MQTT_BROKER_DISPATCH_TASK_STACK=4096
+CONFIG_ESPNOW_MQTT_BROKER_DISPATCH_TASK_PRIO=5
+
+# Heap-allocated topic strings: n = inline char[249] per entry (default, simpler).
+CONFIG_ESPNOW_MQTT_HEAP_TOPICS=n
+
+# HMAC payload integrity: disabled by default.
+CONFIG_ESPNOW_MQTT_PAYLOAD_HMAC=n
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3
