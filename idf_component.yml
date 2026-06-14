@@ -1,6 +1,6 @@
 ## ESP-NOW MQTT component manifest
 
-version: "0.1.0"
+version: "0.2.0"
 description: >
   Lightweight MQTT-like publish/subscribe over ESP-NOW. Stateless publishers,
   central WiFi-connected broker, no fragmentation, 250-byte frame discipline.
