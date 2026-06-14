@@ -22,7 +22,7 @@ the same physical node — there is no third party.
 │  • Sensor firmware       │                   │  • WiFi STA — connected to AP        │
 │  • No WiFi AP join       │                   │  • Runs subscriber callbacks         │
 │  • Battery powered       │                   │  • Forwards data upstream            │
-│  • ESP32-C3 / S3 / C6   │                   │  • ESP32 / S3                        │
+│  • ESP32-C3 / S3 / C6    │                   │  • ESP32 / S3                        │
 └──────────────────────────┘                   └──────────────────────────────────────┘
       sends sensor readings                          receives + acts on them
       via ESP-NOW frames                             (MQTT, HTTP, database, actuator…)
